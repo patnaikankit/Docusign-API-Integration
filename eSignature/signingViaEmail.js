@@ -1,6 +1,6 @@
 /**
  * @file
- * Example 002: Remote signer, cc, envelope has three documents
+ * Remote Signing - sender will receive 1 document
  * @author DocuSign
  */
 
@@ -95,7 +95,7 @@ function makeEnvelope(args) {
   
 
   // create a sender recipient to receive a copy of the documents, identified by name and email
-  // We're setting the parameters via setters
+  // setting the parameters via setters
   let cc1 = new docusign.CarbonCopy();
   cc1.email = args.ccEmail;
   cc1.name = args.ccName;
