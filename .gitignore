@@ -1,3 +1,10 @@
 /node_modules
 
-/private.key
+/source/private.key
+
+/config/private.key
+
+/config/documentNames
+
+/config/documentOptions
+

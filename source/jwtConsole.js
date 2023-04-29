@@ -1,5 +1,5 @@
 const docusign = require('docusign-esign');
-const signingViaEmail = require('../lib/eSignature/signingViaEmail');
+const signingViaEmail = require('../eSignature/signingViaEmail');
 const fs = require('fs');
 const path = require('path');
 const prompt = require('prompt-sync')();
@@ -7,7 +7,7 @@ const prompt = require('prompt-sync')();
 const jwtConfig = require('./jwtConfig.json');
 const { ProvisioningInformation } = require('docusign-esign');
 const demoDocsPath = path.resolve(__dirname, '../documents');
-const doc2File = 'test.docx';
+const docFile = 'test.pdf';
 
 
 const SCOPES = [
@@ -17,7 +17,7 @@ const SCOPES = [
 function getConsent() {
   var urlScopes = SCOPES.join('+');
 
-  // Construct consent URL
+  // New users will be prompted to go to the following url where there access request needs to be approved by the admin
   var redirectUri = "https://developers.docusign.com/platform/auth/consent";
   var consentUrl = `${jwtConfig.dsOauthServer}/oauth/auth?response_type=code&` +
                       `scope=${urlScopes}&client_id=${jwtConfig.dsJWTClientId}&` +
@@ -29,28 +29,33 @@ function getConsent() {
   let consentGranted = prompt("");
   if(consentGranted == "1"){
     return true;
-  } else {
+  }
+   else {
     console.error("Please grant consent!");
     process.exit();
   }
 }
 
+// authentication workflow
 async function authenticate(){
-  const jwtLifeSec = 10 * 60, // requested lifetime for the JWT is 10 min
+  // JWT token will be valid for 5 min
+  const jwtLifeSec = 5*60, 
+  // Api call for creating a new client
     dsApi = new docusign.ApiClient();
-  dsApi.setOAuthBasePath(jwtConfig.dsOauthServer.replace('https://', '')); // it should be domain only.
+  dsApi.setOAuthBasePath(jwtConfig.dsOauthServer.replace('https://', '')); 
   let rsaKey = fs.readFileSync(jwtConfig.privateKeyLocation);
 
   try {
+    // new user will be created
     const results = await dsApi.requestJWTUserToken(jwtConfig.dsJWTClientId,
       jwtConfig.impersonatedUserGuid, SCOPES, rsaKey,
       jwtLifeSec);
     const accessToken = results.body.access_token;
 
-    // get user info
+    // getting user info
     const userInfoResults = await dsApi.getUserInfo(accessToken);
 
-    // use the default account
+    // using the pre existing account if it exists
     let userInfo = userInfoResults.accounts.find(account =>
       account.isDefault === "true");
 
@@ -59,37 +64,48 @@ async function authenticate(){
       apiAccountId: userInfo.accountId,
       basePath: `${userInfo.baseUri}/restapi`
     };
-  } catch (e) {
-    console.log(e);
-    let body = e.response && e.response.body;
-    // Determine the source of the error
-    if (body) {
-        // The user needs to grant consent
+  } 
+
+  // Catching errors if any arises
+  catch(error){
+    console.log(error);
+    let body = error.response && error.response.body;
+    // Determining the source of the error
+    if(body){
+        // user needs access 
       if (body.error && body.error === 'consent_required') {
-        if (getConsent()){ return authenticate(); };
-      } else {
-        // Consent has been granted. Show status code for DocuSign API error
-        this._debug_log(`\nAPI problem: Status code ${e.response.status}, message body:
+        if(getConsent()){ 
+          return authenticate();
+        };
+      } 
+      else {
+        // access grant has been given 
+        // sending api status error
+        this._debug_log(`\nAPI problem: Status code ${error.response.status}, message body:
         ${JSON.stringify(body, null, 4)}\n\n`);
       }
     }
   }
 }
 
+// If there are no issues with above process users will be allowed to enter the following data fields
 function getArgs(apiAccountId, accessToken, basePath){
   signerEmail = prompt("Enter the signer's email address: ");
   signerName = prompt("Enter the signer's name: ");
-  ccEmail = prompt("Enter the carbon copy's email address: ");
-  ccName = prompt("Enter the carbon copy's name: ");
+  senderEmail = prompt("Enter the carbon copy's email address: ");
+  senderName = prompt("Enter the carbon copy's name: ");
 
+  // if there are no issues in the process and code doesn't crash then an envelope will be created and it will be sent to the recepient
   const envelopeArgs = {
     signerEmail: signerEmail,
     signerName: signerName,
-    ccEmail: ccEmail,
-    ccName: ccName,
+    senderEmail: senderEmail,
+    senderName: senderName,
     status: "sent",
-    doc2File: path.resolve(demoDocsPath, doc2File),
+    docFile: path.resolve(demoDocsPath, docFile),
   };
+
+  // sender's basic info is stored here
   const args = {
     accessToken: accessToken,
     basePath: basePath,
@@ -102,9 +118,15 @@ function getArgs(apiAccountId, accessToken, basePath){
 
 
 async function main(){
+  // Workflow of the process
+
+  // to check if users are authenticated
   let accountInfo = await authenticate();
+  // if they are authenticated then get their credentials
   let args = getArgs(accountInfo.apiAccountId, accountInfo.accessToken, accountInfo.basePath);
+  // if no errors arise proceed to create an envelope and send it
   let envelopeId = signingViaEmail.sendEnvelope(args);
+  // Process is complete and envelopeId  is sent to the sender
   console.log(envelopeId);
 }
 
